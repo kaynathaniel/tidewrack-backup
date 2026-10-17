@@ -2,7 +2,11 @@ extends Node
 ## GameState — global save/load and story flags.
 ##
 ## Autoloaded as `GameState`. Holds the narrative flags set by dialogue
-## choices and persists them to user://save.json so "Continue" works.
+## choices and persists them, plus the Journal's discovered entries, to
+## user://save.json so "Continue" works.
+##
+## Saves written before the journal existed have no "journal" key; they load
+## with an empty journal. Entries are never reconstructed from flags.
 
 signal state_changed
 
@@ -27,6 +31,7 @@ func get_flag(name: String, default: Variant = false) -> Variant:
 func new_game() -> void:
 	flags.clear()
 	current_scene = "res://scenes/game.tscn"
+	Journal.clear()
 	state_changed.emit()
 
 
@@ -39,6 +44,7 @@ func save_game() -> bool:
 		"version": SAVE_VERSION,
 		"scene": current_scene,
 		"flags": flags,
+		"journal": Journal.entries(),
 	}
 	var file := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if file == null:
@@ -69,6 +75,8 @@ func load_game() -> bool:
 	current_scene = data.get("scene", "res://scenes/game.tscn")
 	var loaded_flags: Variant = data.get("flags", {})
 	flags = loaded_flags if typeof(loaded_flags) == TYPE_DICTIONARY else {}
+	# Missing or malformed journal block (legacy save) -> empty journal.
+	Journal.restore(data.get("journal", []))
 	state_changed.emit()
 	return true
 

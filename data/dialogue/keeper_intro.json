@@ -1,6 +1,7 @@
 {
 	"logbook": {
 		"speaker": "Keeper's Log",
+		"discover": "entry_logbook",
 		"text": "The ledger is open to the last filled page. The handwriting is Edith Vane's — the keeper who was here before you. It gets smaller toward the bottom, as if she were running out of nerve, not paper.",
 		"next": "logbook_2"
 	},
@@ -52,6 +53,7 @@
 	},
 	"radio": {
 		"speaker": "Radio — Tom Salish",
+		"discover": "entry_radio",
 		"text": "The set crackles, then finds a voice. \"Marrow light, this is Salish on the mainland. Took you long enough to switch that on. You settling in okay out there?\"",
 		"next": "radio_2"
 	},
