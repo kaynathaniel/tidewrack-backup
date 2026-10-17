@@ -16,9 +16,45 @@ The flow suite loads the real `game.tscn` and `main_menu.tscn`, sends a real
 `ui_cancel` input to open the pause overlay, and presses the actual Save,
 Main Menu, Continue and New Game buttons by their labels.
 
-Exit code 0 means every check passed. The suite uses the real autoloads and the
-real `user://` save path, so it deletes `save.json` in Tidewrack's user data
-dir — set `XDG_DATA_HOME` (or `--user-data-dir`) to a scratch location in CI.
+### Running the suites safely
+
+Both suites use the real autoloads and therefore the real `user://` data dir
+— Godot 4.3 has no command-line switch to redirect it. They are safe to run
+on a machine with a developer save because every suite goes through
+`tests/save_sandbox.gd`:
+
+1. **Before the first test**, an existing `user://save.json` is moved to
+   `user://save.json.pretest` and its SHA-256 recorded. If there is no save,
+   nothing is moved.
+2. **Tests run** against a scratch `save.json` that they create and delete.
+3. **After the last test**, the scratch file is removed, the original is
+   moved back, and re-hashed. A mismatch counts as a test failure and is
+   printed.
+4. **If a previous run crashed** between steps 1 and 3, `save.json.pretest`
+   is still on disk. The next run refuses to start (exit code 2) and prints
+   the absolute path, so nothing is overwritten. Recover by renaming
+   `save.json.pretest` back to `save.json` in that directory.
+
+Expected console lines when a save exists:
+
+```
+SaveSandbox: existing save moved aside (sha256 806cd997f9a8…)
+…
+SaveSandbox: original save restored and verified byte-identical (sha256 806cd997f9a8…)
+```
+
+Verified on 2026-10-17: a hand-written `save.json` with a distinctive
+`"dev_note"` field was byte-identical (external `sha256sum`) after both
+suites ran back-to-back; a planted `.pretest` made the suite exit 2 without
+touching either file; with no save present the suites left the directory
+empty.
+
+Exit codes: `0` all passed · `1` a check failed or the original save could
+not be restored · `2` refused to run because a `.pretest` file exists.
+
+For a fully separate data dir on Linux CI, `XDG_DATA_HOME=$(mktemp -d)` in
+front of the command also works (macOS: `HOME`, Windows: `APPDATA`), but the
+sandbox makes that optional rather than required.
 
 **Status key** — ✅ automated and passing on Godot 4.3.stable (Linux, headless)
 · 🟡 manual check, not yet performed · ⬜ not covered.

@@ -9,15 +9,18 @@ extends SceneTree
 ##
 ## Run from the project root:
 ##   godot --headless --path . -s res://tests/test_pause_save_continue_flow.gd
-## Exit code 0 = passed. Deletes the real user:// save (see
-## test_journal_persistence.gd for the CI note).
+## Exit code 0 = passed, 2 = refused to run (see save_sandbox.gd). An
+## existing developer save is moved aside and restored, hash-verified.
 
 const GAME := "res://scenes/game.tscn"
 const MENU := "res://scenes/main_menu.tscn"
 const DIALOGUE := "res://data/dialogue/keeper_intro.json"
 
+const SaveSandbox := preload("res://tests/save_sandbox.gd")
+
 var _failures := 0
 var _checks := 0
+var _sandbox := SaveSandbox.new()
 var _gs: Node
 var _jr: Node
 var _dm: Node
@@ -31,14 +34,17 @@ func _run() -> void:
 	_gs = root.get_node("GameState")
 	_jr = root.get_node("Journal")
 	_dm = root.get_node("DialogueManager")
-	_gs.delete_save()
+	if not _sandbox.enter():
+		quit(2)
+		return
 	_gs.flags.clear()
 	_jr.clear()
 
 	await _flow_save_then_continue_restores_journal_and_flags()
 	await _flow_new_game_after_continue_starts_clean()
 
-	_gs.delete_save()
+	if not _sandbox.leave():
+		_failures += 1
 	print("\n%d checks, %d failure(s)" % [_checks, _failures])
 	quit(0 if _failures == 0 else 1)
 

@@ -8,8 +8,11 @@ extends SceneTree
 ## Uses the real autoloads and the real user:// save path, so it deletes the
 ## save in that user data dir. Point XDG_DATA_HOME at a temp dir in CI.
 
+const SaveSandbox := preload("res://tests/save_sandbox.gd")
+
 var _failures := 0
 var _checks := 0
+var _sandbox := SaveSandbox.new()
 
 # Autoload singletons aren't globals when a `-s` script compiles, so fetch
 # them from the tree once it's up.
@@ -27,6 +30,9 @@ func _run() -> void:
 	_gs = root.get_node("GameState")
 	_jr = root.get_node("Journal")
 	_dm = root.get_node("DialogueManager")
+	if not _sandbox.enter():
+		quit(2)
+		return
 	var tests := [
 		test_journal_survives_save_and_continue,
 		test_legacy_save_without_journal_restores_empty,
@@ -47,6 +53,8 @@ func _run() -> void:
 		print("%s  %s" % ["PASS" if _failures == before else "FAIL", name])
 
 	_reset()
+	if not _sandbox.leave():
+		_failures += 1
 	print("\n%d checks, %d failure(s)" % [_checks, _failures])
 	quit(0 if _failures == 0 else 1)
 
