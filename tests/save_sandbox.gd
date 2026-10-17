@@ -9,9 +9,10 @@ extends RefCounted
 ##
 ## If a previous run crashed between enter() and leave(), the `.pretest`
 ## file is still on disk; enter() then refuses to run rather than overwrite
-## it. Recover with:  mv save.json.pretest save.json  in the user data dir
-## (printed by `OS.get_user_data_dir()`, or by `godot --path . -s` with any
-## script that prints it).
+## it. `.pretest` is the real pre-run save. If `save.json` is *also* present
+## it is either the crashed run's scratch file or a newer real save made by
+## playing since — do not blindly overwrite either; see "Recovering from a
+## crashed run" in docs/journal-save-regression.md.
 ##
 ## Usage from a `-s` SceneTree test script:
 ##   const SaveSandbox := preload("res://tests/save_sandbox.gd")

@@ -14,7 +14,10 @@ godot --headless --path . -s res://tests/test_pause_save_continue_flow.gd  # sce
 
 The flow suite loads the real `game.tscn` and `main_menu.tscn`, sends a real
 `ui_cancel` input to open the pause overlay, and presses the actual Save,
-Main Menu, Continue and New Game buttons by their labels.
+Main Menu, Continue and New Game buttons by their labels. It runs
+**headless**: scenes are instantiated and buttons are pressed, but nothing is
+rendered and nothing has been looked at on screen. Every ✅ it produces is a
+claim about state, not about what a player would see.
 
 ### Running the suites safely
 
@@ -32,8 +35,23 @@ on a machine with a developer save because every suite goes through
    printed.
 4. **If a previous run crashed** between steps 1 and 3, `save.json.pretest`
    is still on disk. The next run refuses to start (exit code 2) and prints
-   the absolute path, so nothing is overwritten. Recover by renaming
-   `save.json.pretest` back to `save.json` in that directory.
+   the absolute path, so nothing is overwritten.
+
+**Recovering from a crashed run.** `save.json.pretest` is your real save
+from before the crashed run. Look in the printed directory first:
+
+- **Only `save.json.pretest` exists** — rename it to `save.json`. Done.
+- **Both files exist** — do not overwrite either. `save.json` is *either* the
+  scratch file the crashed run was using (if you have not played since) *or*
+  a newer real save (if you launched the game in between). Decide which one
+  you want to keep, rename the other to something like
+  `save.json.YYYY-MM-DD.bak`, and only then rename `save.json.pretest` to
+  `save.json` if that is the one you chose. If in doubt, keep both renamed
+  copies; a scratch file is recognisable by its contents (a handful of test
+  flags such as `"a"`, `"count"`, `"stale"`, or an `entry_stale` journal
+  id).
+
+Never run the suites again until `.pretest` is gone; they will refuse anyway.
 
 Expected console lines when a save exists:
 
@@ -56,10 +74,16 @@ For a fully separate data dir on Linux CI, `XDG_DATA_HOME=$(mktemp -d)` in
 front of the command also works (macOS: `HOME`, Windows: `APPDATA`), but the
 sandbox makes that optional rather than required.
 
-**Status key** — ✅ automated and passing on Godot 4.3.stable (Linux, headless)
-· 🟡 manual check, not yet performed · ⬜ not covered.
+**Status key** — ✅ asserted by an automated test, passing on Godot
+4.3.stable (Linux, headless) · 👁 observed in a headless run's console
+output, not asserted by any test · 🟡 manual check, not yet performed ·
+⬜ not covered.
 
 ## 1. Normal Continue
+
+The in-game rows below are covered by the headless flow suite: real scenes,
+real input event, real buttons, no rendering. Nothing in this section has
+been checked visually.
 
 | Expectation | Coverage | Status |
 |---|---|---|
@@ -69,8 +93,8 @@ sandbox makes that optional rather than required.
 | In-game: Esc → pause overlay → [Save] writes `scene`, `flags` and `journal`; Save button reads "Saved ✓". | `test_pause_save_continue_flow.gd` | ✅ |
 | [Main Menu] returns to `main_menu.tscn`; [Continue] resumes into `game.tscn` with journal and flags restored **from disk**, discarding stale in-memory state. | same flow test (dirties the autoloads before pressing Continue) | ✅ |
 | Re-reading the logbook after Continue emits no `entry_added` and changes neither journal nor flags. | same flow test | ✅ |
-| A dialogue run in the resumed scene raises no `Callable is invalid` errors from the freed session-1 `game.gd` signal lambdas. | same flow test; checked by inspecting console output, not asserted | ✅ |
-| The journal entries are *visible* after Continue. | manual, once the reader UI exists | 🟡 |
+| A dialogue run in the resumed scene raises no `Callable is invalid` errors from the freed session-1 `game.gd` signal lambdas. | console output of the flow suite was clean; no test asserts it | 👁 |
+| The journal entries are *visible* after Continue, and the pause overlay / menus look right while doing it. | manual, with a rendered build; the reader UI does not exist yet | 🟡 |
 | Save from the lamp room. | not applicable — the lamp room has no pause menu yet | ⬜ |
 
 ## 2. Legacy saves (no `"journal"` key)
@@ -124,12 +148,17 @@ Vertical-slice and Next Fest demo builds write `{"version": 1, "scene", "flags"}
 | Entering `radio` records `entry_radio` once, sets no flags on entry, and the "Ask him about Edith" choice still sets `radioed_tom`. | `test_radio_node_discovers_entry_radio_at_runtime` | ✅ |
 | Every `"discover"` value in `data/dialogue/*.json` is a non-empty string. | `python3 tests/validate_dialogue.py` | ✅ |
 
-## Running the suite yourself
+## Last verified run
 
-Last verified run (branch `fix/journal-save-persistence`, Godot 4.3.stable
-Linux headless, 2026-10-17):
+Branch `fix/journal-save-persistence` at `5842a89`, Godot 4.3.stable Linux
+headless, 2026-10-17, with a developer save present (the `SaveSandbox` lines
+are what you should see; `push_warning` lines from the malformed-data and
+empty-id tests are omitted here but expected):
 
 ```
+godot --headless --path . -s res://tests/test_journal_persistence.gd
+
+SaveSandbox: existing save moved aside (sha256 806cd997f9a8…)
 PASS  test_journal_survives_save_and_continue
 PASS  test_legacy_save_without_journal_restores_empty
 PASS  test_legacy_save_does_not_reconstruct_from_flags
@@ -140,6 +169,7 @@ PASS  test_empty_entry_id_is_ignored
 PASS  test_dialogue_discover_records_entry_without_touching_flags
 PASS  test_radio_node_discovers_entry_radio_at_runtime
 PASS  test_repeated_discovery_after_continue_is_a_no_op
+SaveSandbox: original save restored and verified byte-identical (sha256 806cd997f9a8…)
 
 56 checks, 0 failure(s)
 ```
@@ -147,13 +177,17 @@ PASS  test_repeated_discovery_after_continue_is_a_no_op
 ```
 godot --headless --path . -s res://tests/test_pause_save_continue_flow.gd
 
+SaveSandbox: existing save moved aside (sha256 806cd997f9a8…)
 -- flow: pause → Save → Main Menu → Continue
 -- flow: Main Menu → New Game after a Continue
+SaveSandbox: original save restored and verified byte-identical (sha256 806cd997f9a8…)
 
 33 checks, 0 failure(s)
 ```
 
-Warnings printed during the malformed-data test are expected; they are the
-`push_warning` calls under test. Only Linux headless has been run; nothing in
-the path is platform-specific, but a Windows/macOS run before launch would
-close that gap.
+Warnings printed during `test_malformed_journal_block_restores_safely`,
+`test_malformed_journal_alongside_valid_scene_and_flags` and
+`test_empty_entry_id_is_ignored` are expected; they are the `push_warning`
+calls under test. Only Linux headless has been run; nothing in the path is
+platform-specific, but a Windows/macOS run before launch would close that
+gap.
