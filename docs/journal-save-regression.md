@@ -153,8 +153,7 @@ Vertical-slice and Next Fest demo builds write `{"version": 1, "scene", "flags"}
 
 ## Last verified run
 
-Branch `fix/journal-save-persistence` at the commit that added the
-authentic-v1 and corrupt-root tests, Godot 4.3.stable Linux
+Branch `fix/journal-save-persistence` at `e26f2cb`, Godot 4.3.stable Linux
 headless, 2026-10-17, with a developer save present (the `SaveSandbox` lines
 are what you should see; `push_warning` lines from the malformed-data and
 empty-id tests are omitted here but expected):
