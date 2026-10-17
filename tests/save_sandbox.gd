@@ -31,8 +31,13 @@ var _entered := false
 ## Returns false (and prints why) when it is not safe to proceed.
 func enter() -> bool:
 	if FileAccess.file_exists(ASIDE_PATH):
-		printerr("SaveSandbox: %s already exists — a previous test run did not finish." % _abs(ASIDE_PATH))
-		printerr("SaveSandbox: it is your real save. Move it back to %s before running tests again." % _abs(SAVE_PATH))
+		printerr("SaveSandbox: refusing to run — %s exists, so a previous test run did not finish." % _abs(ASIDE_PATH))
+		printerr("SaveSandbox: that file is your real save from before that run.")
+		if FileAccess.file_exists(SAVE_PATH):
+			printerr("SaveSandbox: %s ALSO exists. It is either the crashed run's scratch file or a newer real save." % _abs(SAVE_PATH))
+			printerr("SaveSandbox: do not overwrite either one. Follow 'Recovering from a crashed run' in docs/journal-save-regression.md.")
+		else:
+			printerr("SaveSandbox: rename it to %s, then run the tests again." % _abs(SAVE_PATH))
 		return false
 	if FileAccess.file_exists(SAVE_PATH):
 		_had_save = true

@@ -37,6 +37,7 @@ func _run() -> void:
 		test_journal_survives_save_and_continue,
 		test_legacy_save_without_journal_restores_empty,
 		test_legacy_save_does_not_reconstruct_from_flags,
+		test_authentic_v1_save_from_original_code_loads,
 		test_new_game_clears_journal,
 		test_malformed_journal_block_restores_safely,
 		test_malformed_journal_alongside_valid_scene_and_flags,
@@ -44,6 +45,7 @@ func _run() -> void:
 		test_dialogue_discover_records_entry_without_touching_flags,
 		test_radio_node_discovers_entry_radio_at_runtime,
 		test_repeated_discovery_after_continue_is_a_no_op,
+		test_corrupt_root_json_fails_without_touching_memory,
 	]
 	for t in tests:
 		_reset()
@@ -146,6 +148,32 @@ func test_legacy_save_does_not_reconstruct_from_flags() -> void:
 	_ok(_read_save().get("journal", null) == [], "re-save writes an explicit empty journal")
 
 
+func test_authentic_v1_save_from_original_code_loads() -> void:
+	# tests/fixtures/save_v1_8c9b1e4.json was written by GameState.save_game()
+	# at commit 8c9b1e4 (the Next Fest demo candidate, before this branch)
+	# after playing: logbook -> believer -> keep quiet; radio -> ask about Edith.
+	# It is the real on-disk shape a demo playtester's save has.
+	var fixture := FileAccess.get_file_as_string("res://tests/fixtures/save_v1_8c9b1e4.json")
+	_ok(not fixture.is_empty(), "fixture present")
+	_ok(not fixture.contains("journal"), "fixture has no journal key (sanity)")
+	_write_save(fixture)
+	_jr.discover("entry_stale")
+	_ok(_gs.load_game(), "authentic v1 save loads")
+	_ok(_gs.flags == {"believer": true, "radioed_tom": true, "trusted_edith": false},
+		"all three flags load with their exact values (trusted_edith=false kept as false)")
+	_ok(_gs.current_scene == "res://scenes/game.tscn", "scene loads")
+	_ok(_jr.entries().is_empty(), "journal is empty: nothing inferred from believer/radioed_tom")
+	# Round-trip: re-save writes the same flags/scene plus an explicit empty journal,
+	# and the result loads again identically.
+	_gs.save_game()
+	var resaved := _read_save()
+	_ok(resaved.get("journal", null) == [], "re-save adds journal: []")
+	_ok(resaved.get("flags", {}) == {"believer": true, "radioed_tom": true, "trusted_edith": false}, "re-save keeps flags")
+	_ok(int(resaved.get("version", 0)) == 1, "re-save keeps version 1")
+	_gs.flags.clear()
+	_ok(_gs.load_game() and _gs.flags.size() == 3 and _jr.entries().is_empty(), "re-saved file loads identically")
+
+
 func test_new_game_clears_journal() -> void:
 	_gs.set_flag("skeptic", true)
 	_jr.discover("entry_logbook")
@@ -179,6 +207,39 @@ func test_dialogue_discover_records_entry_without_touching_flags() -> void:
 	_ok(not _gs.flags.has("skeptic"), "other branch's flag not set")
 	_jr.entry_added.disconnect(cb)
 	_drain_dialogue()
+
+
+func test_corrupt_root_json_fails_without_touching_memory() -> void:
+	# The player has live progress in memory and then Continues over a save
+	# whose root is unusable. load_game() must return false and leave flags,
+	# journal and scene exactly as they were.
+	var corrupt_roots := {
+		"truncated mid-object": '{"flags": {"skeptic": tr',
+		"empty file": "",
+		"not JSON at all": "keeper's log, page 1",
+		"JSON array root": '[{"flags": {}}]',
+		"JSON string root": '"save"',
+		"JSON number root": "42",
+		"JSON null root": "null",
+	}
+	for label in corrupt_roots:
+		_gs.flags = {"believer": true, "trusted_edith": false}
+		_gs.current_scene = "res://scenes/game.tscn"
+		_jr.clear()
+		_jr.discover("entry_logbook")
+		_jr.discover("entry_radio")
+		var changed := [false]
+		var cb := func(): changed[0] = true
+		_gs.state_changed.connect(cb)
+		_write_save(corrupt_roots[label])
+		var loaded: bool = _gs.load_game()
+		_gs.state_changed.disconnect(cb)
+		_ok(not loaded, "%s: load_game returns false" % label)
+		_ok(_gs.flags == {"believer": true, "trusted_edith": false}, "%s: flags untouched" % label)
+		_ok(_jr.entries() == ["entry_logbook", "entry_radio"], "%s: journal untouched" % label)
+		_ok(_gs.current_scene == "res://scenes/game.tscn", "%s: scene untouched" % label)
+		_ok(not changed[0], "%s: state_changed not emitted" % label)
+		_ok(FileAccess.get_file_as_string(_gs.SAVE_PATH) == corrupt_roots[label], "%s: corrupt file left as-is for inspection" % label)
 
 
 func test_malformed_journal_alongside_valid_scene_and_flags() -> void:
