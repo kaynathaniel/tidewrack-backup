@@ -6,6 +6,7 @@ Checks, for every data/dialogue/*.json file:
   - each node is either a linear node ("next": id|null) or a choice node
     ("choices": [{text, next, set_flag?}]) — not neither, not both
   - every referenced target id exists
+  - any "discover" key is a non-empty journal entry id
   - at least one terminal (next == null) is reachable from an entry point
   - reports orphan nodes (unreachable from any known entry) as warnings
 
@@ -21,6 +22,10 @@ from pathlib import Path
 
 # Entry-point node ids the game starts graphs from (see scripts/game.gd).
 KNOWN_ENTRIES = {"logbook", "radio", "door", "start"}
+
+# Journal entry ids recorded by a node's "discover" key (scripts/journal.gd).
+# Convention only, but keep ids stable — they live in save files.
+JOURNAL_ENTRY_PREFIX = "entry_"
 
 ROOT = Path(__file__).resolve().parent.parent
 DIALOGUE_DIR = ROOT / "data" / "dialogue"
@@ -78,6 +83,15 @@ def validate_file(path: Path) -> tuple[list[str], list[str]]:
         if has_next and isinstance(node.get("next"), str) and node["next"] not in graph:
             errors.append(f"{path.name}:{nid}: 'next' points to missing node '{node['next']}'")
 
+        if "discover" in node:
+            d = node["discover"]
+            if not isinstance(d, str) or not d:
+                errors.append(f"{path.name}:{nid}: 'discover' must be a non-empty string")
+            elif not d.startswith(JOURNAL_ENTRY_PREFIX):
+                warnings.append(
+                    f"{path.name}:{nid}: journal id '{d}' should start with '{JOURNAL_ENTRY_PREFIX}'"
+                )
+
         if has_choices:
             for i, choice in enumerate(node["choices"]):
                 if not isinstance(choice, dict) or "text" not in choice:
@@ -134,15 +148,3 @@ def main() -> int:
 if __name__ == "__main__":
     sys.exit(main())
 
-
-# --- Public Demo: journal graphs -------------------------------------------
-# The journal system (scripts/journal.gd) reads discovered-log entries from the
-# same JSON-graph format, so they validate through the checker above. Journal
-# graphs live under data/dialogue/ with an "entry_*" id and are held to the same
-# rules (targets resolve, a terminal exists). This hook is a placeholder until
-# the journal content lands for the public demo.
-JOURNAL_ENTRY_PREFIX = "entry_"
-
-
-def is_journal_graph(graph: dict) -> bool:
-	return any(str(k).startswith(JOURNAL_ENTRY_PREFIX) for k in graph)
