@@ -25,12 +25,43 @@ who answers you) responds. Repeat across locations toward the water.
 | Save / load        | ✅ vertical slice | Single slot, `user://save.json`. |
 | Menus + settings   | ✅ vertical slice | Title, pause, volume, fullscreen. |
 | Player movement    | ✅ vertical slice | Top-down; wall collision pending. |
-| Journal            | ⏳ demo           | Tracks discovered logs; re-readable. |
+| Journal            | 🔶 demo (storage + persistence) | Discoveries recorded and saved; reader UI pending. See [Journal](#journal). |
 | Second location    | ⏳ demo           | The lamp room. |
 | Controller + remap  | ⏳ demo          | Currently keyboard-only, built-in actions. |
 | Localization        | ⏳ press build    | String extraction + translation tables. |
 | Accessibility       | ⏳ press build    | Text scale, dyslexia-friendly font, no-flash. |
 | Steam integration   | ⏳ launch         | Achievements, cloud saves. |
+
+## Journal
+
+The journal collects the logs, recordings and objects the keeper has examined
+so they can be re-read later. It is an ordered list of entry ids (`Journal`
+autoload, `scripts/journal.gd`); the reader UI is still to come.
+
+**Discovery.** A dialogue node carries `"discover": "<entry_id>"`; entering that
+node records the entry. The first discovery of an id emits `entry_added`;
+repeats are ignored, so re-reading the logbook does not duplicate it. Ids are
+`entry_<thing>` by convention (`tests/validate_dialogue.py` warns otherwise).
+Current entries: `entry_logbook` (the `logbook` node), `entry_radio` (the
+`radio` node).
+
+**Persistence.** `GameState.save_game()` writes the entry list as the
+`"journal"` key of `user://save.json`, in discovery order; `load_game()` restores
+it. The journal is saved and restored together with story flags but is
+independent of them — flags are never used to infer entries, and discovery
+never sets flags.
+
+**Legacy saves.** Saves written before this key existed (vertical slice and the
+Next Fest demo) have no `"journal"`; they load with an empty journal. The same
+applies to a malformed `"journal"` block: anything that is not an array is
+treated as empty, and non-string or empty ids inside an array are dropped.
+Nothing else in the save is affected.
+
+**New Game** clears the journal along with flags.
+
+**Contract.** Entry ids live in players' save files, so — like the canonical
+story flags in `narrative-bible.md` — rename only with a migration. Regression
+coverage: `docs/journal-save-regression.md`.
 
 ## Interaction design
 
