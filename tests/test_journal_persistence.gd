@@ -33,7 +33,11 @@ func _run() -> void:
 		test_legacy_save_does_not_reconstruct_from_flags,
 		test_new_game_clears_journal,
 		test_malformed_journal_block_restores_safely,
+		test_malformed_journal_alongside_valid_scene_and_flags,
+		test_empty_entry_id_is_ignored,
 		test_dialogue_discover_records_entry_without_touching_flags,
+		test_radio_node_discovers_entry_radio_at_runtime,
+		test_repeated_discovery_after_continue_is_a_no_op,
 	]
 	for t in tests:
 		_reset()
@@ -52,7 +56,17 @@ func _run() -> void:
 func _reset() -> void:
 	_gs.delete_save()
 	_gs.flags.clear()
+	_gs.current_scene = "res://scenes/game.tscn"
 	_jr.clear()
+
+
+## Play a started dialogue to its end, taking choice 0 at every branch, so
+## DialogueManager.is_active is false before the next test.
+func _drain_dialogue() -> void:
+	while _dm.is_active:
+		_dm.advance()   # no-op on a choice node
+		if _dm.is_active:
+			_dm.choose(0)  # no-op on a linear node
 
 
 func _ok(cond: bool, msg: String) -> void:
@@ -156,8 +170,89 @@ func test_dialogue_discover_records_entry_without_touching_flags() -> void:
 	_ok(_gs.get_flag("believer") == true, "choice still sets its story flag")
 	_ok(not _gs.flags.has("skeptic"), "other branch's flag not set")
 	_jr.entry_added.disconnect(cb)
-	# Drain so is_active resets for later tests.
-	while _dm.is_active:
-		_dm.advance()   # no-op on a choice node
-		if _dm.is_active:
-			_dm.choose(0)  # no-op on a linear node
+	_drain_dialogue()
+
+
+func test_malformed_journal_alongside_valid_scene_and_flags() -> void:
+	# Junk in the journal block must not cost the player their flags or scene.
+	_write_save("""{
+	"version": 1,
+	"scene": "res://scenes/game.tscn",
+	"flags": { "skeptic": true, "trusted_edith": false, "radioed_tom": true },
+	"journal": { "entry_logbook": true }
+}""")
+	_ok(_gs.load_game(), "load succeeds with an object where the array should be")
+	_ok(_jr.entries().is_empty(), "journal restores empty")
+	_ok(_gs.get_flag("skeptic") == true, "skeptic flag intact")
+	_ok(_gs.flags.has("trusted_edith") and _gs.get_flag("trusted_edith") == false, "trusted_edith=false intact")
+	_ok(_gs.get_flag("radioed_tom") == true, "radioed_tom flag intact")
+	_ok(_gs.current_scene == "res://scenes/game.tscn", "scene intact")
+
+	_write_save("""{
+	"version": 1,
+	"scene": "res://scenes/game.tscn",
+	"flags": { "believer": true },
+	"journal": [ 42, "entry_radio", null, "", { "id": "entry_logbook" }, "entry_radio" ]
+}""")
+	_ok(_gs.load_game(), "load succeeds with mixed junk in the array")
+	_ok(_jr.entries() == ["entry_radio"], "only the valid id survives, once")
+	_ok(_gs.get_flag("believer") == true and _gs.flags.size() == 1, "flags exactly as saved")
+	_ok(_gs.current_scene == "res://scenes/game.tscn", "scene intact")
+
+
+func test_empty_entry_id_is_ignored() -> void:
+	var added: Array[String] = []
+	var cb := func(id: String): added.append(id)
+	_jr.entry_added.connect(cb)
+	_jr.discover("")
+	_ok(_jr.entries().is_empty(), "discover(\"\") adds nothing")
+	_ok(added.is_empty(), "discover(\"\") emits nothing")
+	_ok(not _jr.has(""), "has(\"\") is false")
+	_jr.discover("entry_logbook")
+	_jr.discover("")
+	_ok(_jr.entries() == ["entry_logbook"], "empty id after a real one still ignored")
+	_gs.save_game()
+	_ok(_read_save().get("journal", null) == ["entry_logbook"], "empty id never reaches the save file")
+	_jr.entry_added.disconnect(cb)
+
+
+func test_radio_node_discovers_entry_radio_at_runtime() -> void:
+	var added: Array[String] = []
+	var cb := func(id: String): added.append(id)
+	_jr.entry_added.connect(cb)
+	_ok(_dm.start("res://data/dialogue/keeper_intro.json", "radio"), "radio dialogue starts")
+	_ok(_jr.has("entry_radio"), "entering the radio node discovers entry_radio")
+	_ok(not _jr.has("entry_logbook"), "logbook entry not discovered by the radio")
+	_ok(added == ["entry_radio"], "entry_added emitted exactly once")
+	_ok(_gs.flags.is_empty(), "no flags set on entry; radioed_tom comes from the choice")
+	_dm.advance()  # radio_2 (choice node)
+	_dm.choose(0)  # "Ask him about Edith."
+	_ok(_gs.get_flag("radioed_tom") == true, "radioed_tom still set by the choice")
+	_ok(added == ["entry_radio"], "walking the rest of the graph discovers nothing more")
+	_gs.save_game()
+	_ok(_read_save().get("journal", null) == ["entry_radio"], "entry_radio persisted")
+	_jr.entry_added.disconnect(cb)
+	_drain_dialogue()
+
+
+func test_repeated_discovery_after_continue_is_a_no_op() -> void:
+	# Session 1: read the logbook, save.
+	_ok(_dm.start("res://data/dialogue/keeper_intro.json", "logbook"), "session 1: logbook starts")
+	_drain_dialogue()
+	_ok(_jr.entries() == ["entry_logbook"], "session 1: entry recorded")
+	_gs.save_game()
+
+	# Session 2: fresh state, Continue, read the logbook again.
+	_gs.flags.clear()
+	_jr.clear()
+	_ok(_gs.load_game(), "session 2: Continue")
+	var added: Array[String] = []
+	var cb := func(id: String): added.append(id)
+	_jr.entry_added.connect(cb)
+	_ok(_dm.start("res://data/dialogue/keeper_intro.json", "logbook"), "session 2: logbook starts again")
+	_ok(added.is_empty(), "re-reading after Continue does not emit entry_added")
+	_ok(_jr.entries() == ["entry_logbook"], "journal unchanged after re-read")
+	_drain_dialogue()
+	_jr.entry_added.disconnect(cb)
+	_gs.save_game()
+	_ok(_read_save().get("journal", null) == ["entry_logbook"], "re-save still holds one entry")

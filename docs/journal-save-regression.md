@@ -38,6 +38,7 @@ Vertical-slice and Next Fest demo builds write `{"version": 1, "scene", "flags"}
 | It restores an **empty** journal, even if the in-memory journal held entries before Continue. | same test | ✅ |
 | Its flags and scene load exactly as before. | same test | ✅ |
 | Entries are **not** reconstructed from flags, even when every journal-relevant flag is set. | `test_legacy_save_does_not_reconstruct_from_flags` | ✅ |
+| A legacy save's flags and scene load intact even when a malformed `"journal"` is present. | `test_malformed_journal_alongside_valid_scene_and_flags` | ✅ |
 | Re-saving such a game writes an explicit empty `"journal": []`. | same test | ✅ |
 | A real playtester save file from the demo build loads on this branch. | manual — the test fabricates the v1 shape rather than using a captured file | 🟡 |
 | An old build opening a save written by this branch ignores the extra key. | by inspection of `load_game()` at `8c9b1e4` (it only reads `scene` and `flags`); not executed | 🟡 |
@@ -48,7 +49,7 @@ Vertical-slice and Next Fest demo builds write `{"version": 1, "scene", "flags"}
 |---|---|---|
 | `GameState.new_game()` empties the journal. | `test_new_game_clears_journal` | ✅ |
 | It still clears flags and resets the scene (unchanged behaviour). | same test | ✅ |
-| New Game after a Continue does not carry restored entries into the fresh game. | implied by the above; not a separate case | 🟡 |
+| New Game after a Continue does not carry restored entries into the fresh game. | implied by `test_new_game_clears_journal` (clears a populated journal); not a separate case | 🟡 |
 
 ## 4. Duplicate discoveries
 
@@ -57,7 +58,7 @@ Vertical-slice and Next Fest demo builds write `{"version": 1, "scene", "flags"}
 | Discovering an id already in the journal is a no-op; the saved array has no duplicates. | `test_journal_survives_save_and_continue` (discovers `entry_logbook` twice) | ✅ |
 | Entering the logbook node emits `entry_added` exactly once. | `test_dialogue_discover_records_entry_without_touching_flags` | ✅ |
 | Duplicate ids in a save file collapse to one on restore, order kept. | `test_malformed_journal_block_restores_safely` | ✅ |
-| Re-examining the logbook after Continue does not re-emit `entry_added`. | not a separate case; follows from `discover()`'s early return | 🟡 |
+| Re-examining the logbook after Continue does not re-emit `entry_added`, and a re-save still holds one entry. | `test_repeated_discovery_after_continue_is_a_no_op` | ✅ |
 
 ## 5. Malformed data
 
@@ -66,7 +67,8 @@ Vertical-slice and Next Fest demo builds write `{"version": 1, "scene", "flags"}
 | `"journal"` is not an array (e.g. a string) → empty journal, load still succeeds, warning logged. | `test_malformed_journal_block_restores_safely` | ✅ |
 | Non-string items (`7`, `null`) and empty strings inside the array are dropped, warning logged. | same test | ✅ |
 | Valid entries in the same array survive. | same test | ✅ |
-| `Journal.discover("")` is ignored with a warning. | not covered by a test | ⬜ |
+| `"journal"` is a JSON object, or an array mixing numbers, `null`, empty strings and objects, **alongside** valid flags and scene → journal degrades, flags and scene untouched. | `test_malformed_journal_alongside_valid_scene_and_flags` | ✅ |
+| `Journal.discover("")` adds nothing, emits nothing, and never reaches the save file. | `test_empty_entry_id_is_ignored` | ✅ |
 | Corrupt `save.json` overall (not valid JSON) → `load_game()` returns false, journal untouched. | pre-existing `load_game()` behaviour; not covered here | ⬜ |
 
 ## 6. Dialogue wiring
@@ -75,12 +77,13 @@ Vertical-slice and Next Fest demo builds write `{"version": 1, "scene", "flags"}
 |---|---|---|
 | Entering `logbook` records `entry_logbook` and sets no flags. | `test_dialogue_discover_records_entry_without_touching_flags` | ✅ |
 | The `believer` choice still sets its flag and not `skeptic`. | same test | ✅ |
-| Entering `radio` records `entry_radio`. | validator confirms the key; not exercised at runtime | 🟡 |
+| Entering `radio` records `entry_radio` once, sets no flags on entry, and the "Ask him about Edith" choice still sets `radioed_tom`. | `test_radio_node_discovers_entry_radio_at_runtime` | ✅ |
 | Every `"discover"` value in `data/dialogue/*.json` is a non-empty string. | `python3 tests/validate_dialogue.py` | ✅ |
 
 ## Running the suite yourself
 
-Last verified run (branch `fix/journal-save-persistence`, commit `e77789d`):
+Last verified run (branch `fix/journal-save-persistence`, Godot 4.3.stable
+Linux headless, 2026-10-17):
 
 ```
 PASS  test_journal_survives_save_and_continue
@@ -88,9 +91,13 @@ PASS  test_legacy_save_without_journal_restores_empty
 PASS  test_legacy_save_does_not_reconstruct_from_flags
 PASS  test_new_game_clears_journal
 PASS  test_malformed_journal_block_restores_safely
+PASS  test_malformed_journal_alongside_valid_scene_and_flags
+PASS  test_empty_entry_id_is_ignored
 PASS  test_dialogue_discover_records_entry_without_touching_flags
+PASS  test_radio_node_discovers_entry_radio_at_runtime
+PASS  test_repeated_discovery_after_continue_is_a_no_op
 
-26 checks, 0 failure(s)
+56 checks, 0 failure(s)
 ```
 
 Warnings printed during the malformed-data test are expected; they are the
