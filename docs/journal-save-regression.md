@@ -38,8 +38,7 @@ Vertical-slice and Next Fest demo builds write `{"version": 1, "scene", "flags"}
 | It restores an **empty** journal, even if the in-memory journal held entries before Continue. | same test | ✅ |
 | Its flags and scene load exactly as before. | same test | ✅ |
 | Entries are **not** reconstructed from flags, even when every journal-relevant flag is set. | `test_legacy_save_does_not_reconstruct_from_flags` | ✅ |
-| A legacy save's flags and scene load intact even when a malformed `"journal"` is present. | `test_malformed_journal_alongside_valid_scene_and_flags` | ✅ |
-| Re-saving such a game writes an explicit empty `"journal": []`. | same test | ✅ |
+| Re-saving such a game writes an explicit empty `"journal": []`. | `test_legacy_save_does_not_reconstruct_from_flags` | ✅ |
 | A real playtester save file from the demo build loads on this branch. | manual — the test fabricates the v1 shape rather than using a captured file | 🟡 |
 | An old build opening a save written by this branch ignores the extra key. | by inspection of `load_game()` at `8c9b1e4` (it only reads `scene` and `flags`); not executed | 🟡 |
 
